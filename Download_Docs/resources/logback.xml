@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<configuration>
+<property name="HOME_LOG" value="C:\\Users\\mohameds\\OneDrive - Delaware\\Documents\\Projects\\Fluvius\\Code\\Logs"/>
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${HOME_LOG}/applog.log</file>
+        <append>true</append>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <appender name="ERROR-FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${HOME_LOG}/error.log</file>
+        <append>true</append>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <!-- additivity=false ensures error data only goes to the error log -->
+    <logger name="error" level="DEBUG" additivity="false">
+        <appender-ref ref="ERROR-FILE"/>
+    </logger>
+    <root>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>
