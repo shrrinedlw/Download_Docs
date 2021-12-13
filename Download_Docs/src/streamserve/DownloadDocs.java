@@ -24,15 +24,12 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerConfigurationException;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.TransformerFactoryConfigurationError;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import javax.xml.xpath.XPath;
 import javax.xml.xpath.XPathConstants;
-import javax.xml.xpath.XPathExpressionException;
 import javax.xml.xpath.XPathFactory;
 
 import org.apache.commons.io.FileUtils;
@@ -63,6 +60,7 @@ public class DownloadDocs {
 	private static ArrayList<String> failedDocs;
 	private static final XPath xPath = XPathFactory.newInstance().newXPath();
 	static Document failedDocument;
+	private static String strOTCSTicket = "";
 
 	private static String strUserName = "";
 	private static String strUserPassword = "";
@@ -141,11 +139,9 @@ public class DownloadDocs {
 			logger.info("Download Document Utility completed at " + timeStamp);
 
 		} catch (FileNotFoundException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			logger.error("Error in retrieving file", e);
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			logger.error("IO Error", e);
 		}
 
 	}
@@ -165,8 +161,6 @@ public class DownloadDocs {
 			document.getDocumentElement().normalize();
 
 			NodeList data_id_nodes = document.getElementsByTagName("DATAID");
-
-			String strOTCSTicket = "";
 
 			if (data_id_nodes.getLength() > 0) {
 				strOTCSTicket = GetOTCSTicketForDocument(strUserName, strUserPassword, strCSURL);
@@ -223,27 +217,10 @@ public class DownloadDocs {
 						+ xmlFailedDocFile.getAbsolutePath());
 			} else {
 				logger.info("No failed documents for this XML");
-			}
-		} catch (TransformerConfigurationException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (TransformerFactoryConfigurationError e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (TransformerException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (ParserConfigurationException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (SAXException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			}		
+		} catch (TransformerException | IOException | ParserConfigurationException | SAXException  e) {
+			logger.error("Exception in processXML()", e);
 		}
-
 	}
 
 	public static String GetOTCSTicketForDocument(String username, String password, String csURL) {
@@ -295,10 +272,8 @@ public class DownloadDocs {
 
 				}
 			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		} catch (ParseException e) {
-			e.printStackTrace();
+		} catch (IOException | ParseException e) {
+			logger.error("Exception in getting OTCS Ticket", e);
 		}
 
 		return strTicket;
@@ -349,7 +324,49 @@ public class DownloadDocs {
 				long convert = TimeUnit.MILLISECONDS.convert(elapsedTime, TimeUnit.NANOSECONDS);
 				logger.info("Document " + nodeid + " downloaded in " + convert + " milliseconds");
 
-			} else {
+			} else if(connect.getResponseCode() == HttpURLConnection.HTTP_UNAUTHORIZED)
+			{
+				connect.disconnect();
+				logger.info("Download failed with 401, obtaining a new OTCS ticket and retrying document download");
+				strOTCSTicket = GetOTCSTicketForDocument(strUserName, strUserPassword, strCSURL);
+				
+				// Open the connection
+				connect = (HttpURLConnection) url.openConnection();
+
+				// Set the request headers
+				connect.setRequestProperty("User-Agent", "Mozilla/5.0");
+				connect.setRequestProperty("OTCSticket", strOTCSTicket);
+				connect.setRequestProperty("action", "download");
+								
+				if (connect.getResponseCode() == HttpURLConnection.HTTP_OK) {
+
+					try (BufferedInputStream in = new BufferedInputStream(connect.getInputStream());
+							FileOutputStream fileOutputStream = new FileOutputStream(strCompletePath)) {
+
+						byte dataBuffer[] = new byte[1024];
+						int bytesRead;
+						while ((bytesRead = in.read(dataBuffer, 0, 1024)) != -1) {
+							fileOutputStream.write(dataBuffer, 0, bytesRead);
+						}
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+
+					logger.info("File saved to : " + strCompletePath);
+					long end = System.nanoTime();
+					long elapsedTime = end - start;
+					long convert = TimeUnit.MILLISECONDS.convert(elapsedTime, TimeUnit.NANOSECONDS);
+					logger.info("Document " + nodeid + " downloaded in " + convert + " milliseconds");
+
+				} else {
+					failedDocs.add(nodeid);
+					logger.error("Error in document download for id " + nodeid + " with status code: "
+							+ connect.getResponseCode());
+					errorLogger.error("Error in document download for id " + nodeid + " with status code: "
+							+ connect.getResponseCode());
+				}
+			}
+			else {
 				while (count < 3) {
 
 					logger.info("Retrying download for document " + nodeid + " downloaded; attempt: "
@@ -388,7 +405,7 @@ public class DownloadDocs {
 			}
 
 		} catch (Exception e) {
-			e.printStackTrace();
+			logger.error("Exception in downloading document", e);
 		} finally {
 			connect.disconnect();
 		}
@@ -417,9 +434,8 @@ public class DownloadDocs {
 			newRoot.appendChild(inputXML.getFirstChild());
 			inputXML.appendChild(newRoot);
 
-		} catch (XPathExpressionException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+		} catch (Exception e) {
+			logger.error("Exception in updateXML()", e);
 		} finally {
 
 		}
