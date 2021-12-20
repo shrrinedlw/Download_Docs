@@ -85,7 +85,7 @@ public class DownloadDocs {
 			logger.info("Download Document Utility started at " + timeStamp);
 
 			String propFileName = "app.properties";
-			ClassLoader loader = Thread.currentThread().getContextClassLoader();
+			ClassLoader loader = DownloadDocs.class.getClassLoader();
 			inputStream = loader.getResourceAsStream("app.properties");
 
 			if (inputStream != null) {
@@ -116,7 +116,7 @@ public class DownloadDocs {
 			}
 
 			if (strXMLFileName.length() > 0) {
-				String command = "powershell.exe & '" + strPSPath+"'";
+				String command = "powershell.exe & '" + strPSPath + "'";
 				Process powerShellProcess = Runtime.getRuntime().exec(command);
 
 				powerShellProcess.getOutputStream().close();
@@ -174,6 +174,8 @@ public class DownloadDocs {
 			} else {
 				logger.info("No DataIds present for download");
 			}
+			
+			logger.info("Inside processXML Failed docs arrary: "+failedDocs.toString());
 
 			// create failed xml for missing documents
 			if (failedDocs.size() > 0) {
@@ -191,21 +193,27 @@ public class DownloadDocs {
 
 			// update xml to add root tags and remove missing documents
 			Document finalDocument = updateXML(document);
+
+			NodeList final_doc_nodes = finalDocument.getElementsByTagName("DOCUMENT");
 			Transformer transformer = TransformerFactory.newInstance().newTransformer();
 			transformer.transform(new DOMSource(finalDocument), new StreamResult(xmlFile));
-			FileUtils.moveFileToDirectory(FileUtils.getFile(xmlFile), FileUtils.getFile(strXMLMovePath), true);
 
-			SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
 			Date date = new Date();
+			SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
 			String strCurrentDate = formatter.format(date);
-			FileUtils.copyFileToDirectory(FileUtils.getFile(strXMLMovePath + "//" + strXMLFileName),
-					FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate));
-			logger.info("Updated XML " + xmlFile.getName() + " moved to " + strXMLMovePath);
+
+			if (final_doc_nodes.getLength() > 0) {
+				FileUtils.moveFileToDirectory(FileUtils.getFile(xmlFile), FileUtils.getFile(strXMLMovePath), true);
+
+				FileUtils.copyFileToDirectory(FileUtils.getFile(strXMLMovePath + "//" + strXMLFileName),
+						FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate));
+				logger.info("Updated XML " + xmlFile.getName() + " moved to " + strXMLMovePath);
+			} else {
+				FileUtils.moveFileToDirectory(FileUtils.getFile(xmlFile),
+						FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate), true);
+			}
 
 			if (failedDocs.size() > 0) {
-
-				date = new Date();
-				strCurrentDate = formatter.format(date);
 
 				String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
 				File xmlFailedDocFile = new File(strXMLMoveErrorPath + "\\" + timeStamp + "_FailedDocs.xml");
@@ -217,8 +225,8 @@ public class DownloadDocs {
 						+ xmlFailedDocFile.getAbsolutePath());
 			} else {
 				logger.info("No failed documents for this XML");
-			}		
-		} catch (TransformerException | IOException | ParserConfigurationException | SAXException  e) {
+			}
+		} catch (TransformerException | IOException | ParserConfigurationException | SAXException e) {
 			logger.error("Exception in processXML()", e);
 		}
 	}
@@ -238,7 +246,7 @@ public class DownloadDocs {
 		try {
 			httppost.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
 		} catch (UnsupportedEncodingException e) {
-			e.printStackTrace();
+			logger.error("Exception in getting OTCS Ticket", e);
 		}
 
 		// Execute and get the response.
@@ -315,7 +323,12 @@ public class DownloadDocs {
 						fileOutputStream.write(dataBuffer, 0, bytesRead);
 					}
 				} catch (IOException e) {
-					e.printStackTrace();
+					if (!failedDocs.contains(nodeid)) {
+						failedDocs.add(nodeid);
+					}
+					errorLogger.error(
+							"Error in reading document for id " + nodeid + " with message: " + e.getLocalizedMessage());
+					logger.error("Exception in reading document", e);
 				}
 
 				logger.info("File saved to : " + strCompletePath);
@@ -324,12 +337,11 @@ public class DownloadDocs {
 				long convert = TimeUnit.MILLISECONDS.convert(elapsedTime, TimeUnit.NANOSECONDS);
 				logger.info("Document " + nodeid + " downloaded in " + convert + " milliseconds");
 
-			} else if(connect.getResponseCode() == HttpURLConnection.HTTP_UNAUTHORIZED)
-			{
+			} else if (connect.getResponseCode() == HttpURLConnection.HTTP_UNAUTHORIZED) {
 				connect.disconnect();
 				logger.info("Download failed with 401, obtaining a new OTCS ticket and retrying document download");
 				strOTCSTicket = GetOTCSTicketForDocument(strUserName, strUserPassword, strCSURL);
-				
+
 				// Open the connection
 				connect = (HttpURLConnection) url.openConnection();
 
@@ -337,7 +349,7 @@ public class DownloadDocs {
 				connect.setRequestProperty("User-Agent", "Mozilla/5.0");
 				connect.setRequestProperty("OTCSticket", strOTCSTicket);
 				connect.setRequestProperty("action", "download");
-								
+
 				if (connect.getResponseCode() == HttpURLConnection.HTTP_OK) {
 
 					try (BufferedInputStream in = new BufferedInputStream(connect.getInputStream());
@@ -349,7 +361,12 @@ public class DownloadDocs {
 							fileOutputStream.write(dataBuffer, 0, bytesRead);
 						}
 					} catch (IOException e) {
-						e.printStackTrace();
+						if (!failedDocs.contains(nodeid)) {
+							failedDocs.add(nodeid);
+						}
+						errorLogger.error("Error in reading document for id " + nodeid + " with message: "
+								+ e.getLocalizedMessage());
+						logger.error("Exception in reading document", e);
 					}
 
 					logger.info("File saved to : " + strCompletePath);
@@ -359,14 +376,15 @@ public class DownloadDocs {
 					logger.info("Document " + nodeid + " downloaded in " + convert + " milliseconds");
 
 				} else {
-					failedDocs.add(nodeid);
+					if (!failedDocs.contains(nodeid)) {
+						failedDocs.add(nodeid);
+					}
 					logger.error("Error in document download for id " + nodeid + " with status code: "
 							+ connect.getResponseCode());
 					errorLogger.error("Error in document download for id " + nodeid + " with status code: "
 							+ connect.getResponseCode());
 				}
-			}
-			else {
+			} else {
 				while (count < 3) {
 
 					logger.info("Retrying download for document " + nodeid + " downloaded; attempt: "
@@ -382,7 +400,12 @@ public class DownloadDocs {
 								fileOutputStream.write(dataBuffer, 0, bytesRead);
 							}
 						} catch (IOException e) {
-							e.printStackTrace();
+							if (!failedDocs.contains(nodeid)) {
+								failedDocs.add(nodeid);
+							}
+							errorLogger.error("Error in reading document for id " + nodeid + " with message: "
+									+ e.getLocalizedMessage());
+							logger.error("Exception in reading document", e);
 						}
 
 						logger.info("File saved to : " + strCompletePath);
@@ -397,7 +420,9 @@ public class DownloadDocs {
 					}
 				}
 
-				failedDocs.add(nodeid);
+				if (!failedDocs.contains(nodeid)) {
+					failedDocs.add(nodeid);
+				}
 				logger.error("Error in document download for id " + nodeid + " with status code: "
 						+ connect.getResponseCode());
 				errorLogger.error("Error in document download for id " + nodeid + " with status code: "
@@ -405,6 +430,12 @@ public class DownloadDocs {
 			}
 
 		} catch (Exception e) {
+			if (!failedDocs.contains(nodeid)) {
+				failedDocs.add(nodeid);
+			}
+			logger.info("Failed docs arrary: "+failedDocs.toString());
+			errorLogger
+					.error("Error in document download for id " + nodeid + " with message: " + e.getLocalizedMessage());
 			logger.error("Exception in downloading document", e);
 		} finally {
 			connect.disconnect();
