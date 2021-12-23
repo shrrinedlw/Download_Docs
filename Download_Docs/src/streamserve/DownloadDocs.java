@@ -58,6 +58,7 @@ public class DownloadDocs {
 	private static final Logger logger = LoggerFactory.getLogger(DownloadDocs.class);
 	private static final Logger errorLogger = LoggerFactory.getLogger("error");
 	private static ArrayList<String> failedDocs;
+	private static ArrayList<String> nonExistingDocs;
 	private static final XPath xPath = XPathFactory.newInstance().newXPath();
 	static Document failedDocument;
 	private static String strOTCSTicket = "";
@@ -72,6 +73,7 @@ public class DownloadDocs {
 	private static String strXMLMoveErrorPath = "";
 	private static String strXMLMoveCompletedPath = "";
 	private static String strPSPath = "";
+	private static String strFileCheckPath = "";
 
 	public static void main(String[] args) {
 
@@ -104,6 +106,7 @@ public class DownloadDocs {
 			strXMLMoveErrorPath = appProps.getProperty("xmlerrorpath");
 			strXMLMoveCompletedPath = appProps.getProperty("xmlcompletedpath");
 			strPSPath = appProps.getProperty("pspath");
+			strFileCheckPath = appProps.getProperty("filecheckpath");
 
 			File folder = new File(strXMLPath);
 			File[] listOfFiles = folder.listFiles();
@@ -115,7 +118,7 @@ public class DownloadDocs {
 				}
 			}
 
-			if (strXMLFileName.length() > 0) {
+			/*if (strXMLFileName.length() > 0) {
 				String command = "powershell.exe & '" + strPSPath + "'";
 				Process powerShellProcess = Runtime.getRuntime().exec(command);
 
@@ -133,7 +136,7 @@ public class DownloadDocs {
 					logger.error(line);
 				}
 				stderr.close();
-			}
+			}*/
 
 			timeStamp = new SimpleDateFormat("dd MMMM yyyy hh:mm:ss").format(new Date());
 			logger.info("Download Document Utility completed at " + timeStamp);
@@ -149,6 +152,7 @@ public class DownloadDocs {
 	public static void processXML(String strXMLFileName) {
 		Document document = null;
 		failedDocs = new ArrayList<String>();
+		nonExistingDocs = new ArrayList<String>();
 
 		try {
 
@@ -175,10 +179,28 @@ public class DownloadDocs {
 				logger.info("No DataIds present for download");
 			}
 			
+			NodeList attachment_nodes = document.getElementsByTagName("BIJLAGE");
+			if (attachment_nodes.getLength() > 0) {
+
+				for (int i = 0; i < attachment_nodes.getLength(); i++) {
+					String strAttachmentName = attachment_nodes.item(i).getTextContent();
+					boolean bFileExists = new File(strFileCheckPath+"\\"+strAttachmentName).exists();
+					if(!bFileExists) 
+					{
+						if (!nonExistingDocs.contains(strAttachmentName)) {
+							nonExistingDocs.add(strAttachmentName);
+						}
+					}
+				}
+			} else {
+				logger.info("No attachments present for download check");
+			}
+			
 			logger.info("Inside processXML Failed docs arrary: "+failedDocs.toString());
+			logger.info("Inside processXML Non existing docs arrary: "+nonExistingDocs.toString());
 
 			// create failed xml for missing documents
-			if (failedDocs.size() > 0) {
+			if (failedDocs.size() > 0 || nonExistingDocs.size() > 0) {
 				failedDocument = builder.newDocument();
 				Element root = (Element) failedDocument.createElement("asx:abap");
 				((Element) root).setAttribute("xmlns:asx", "http://www.sap.com/abapxml");
@@ -201,21 +223,26 @@ public class DownloadDocs {
 			Date date = new Date();
 			SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
 			String strCurrentDate = formatter.format(date);
+			String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
 
 			if (final_doc_nodes.getLength() > 0) {
 				FileUtils.moveFileToDirectory(FileUtils.getFile(xmlFile), FileUtils.getFile(strXMLMovePath), true);
 
 				FileUtils.copyFileToDirectory(FileUtils.getFile(strXMLMovePath + "//" + strXMLFileName),
 						FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate));
+				
 				logger.info("Updated XML " + xmlFile.getName() + " moved to " + strXMLMovePath);
 			} else {
 				FileUtils.moveFileToDirectory(FileUtils.getFile(xmlFile),
 						FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate), true);
 			}
+			
+			File oldCompletedFile = FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate+"\\"+strXMLFileName);
+			oldCompletedFile.renameTo(new File(strXMLMoveCompletedPath + "\\" + strCurrentDate+"\\"+timeStamp+"_"+strXMLFileName));
 
-			if (failedDocs.size() > 0) {
+			if (failedDocs.size() > 0 || nonExistingDocs.size() > 0) {
 
-				String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+				timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
 				File xmlFailedDocFile = new File(strXMLMoveErrorPath + "\\" + timeStamp + "_FailedDocs.xml");
 				transformer.transform(new DOMSource(failedDocument), new StreamResult(xmlFailedDocFile));
 
@@ -224,7 +251,7 @@ public class DownloadDocs {
 				logger.info("Failed Docs XML with name " + xmlFailedDocFile.getName() + " created at "
 						+ xmlFailedDocFile.getAbsolutePath());
 			} else {
-				logger.info("No failed documents for this XML");
+				logger.info("No failed or non existing documents for this XML");
 			}
 		} catch (TransformerException | IOException | ParserConfigurationException | SAXException e) {
 			logger.error("Exception in processXML()", e);
@@ -460,6 +487,22 @@ public class DownloadDocs {
 					nodes.item(i).getParentNode().removeChild(nodes.item(i));
 				}
 			}
+			
+			for (String nonExistingDoc : nonExistingDocs) {
+				String xPathExpression = "//DOCUMENT[./DOC_OUTPUT_DATA/BIJLAGEN_PARAM_FS/ZSCS_SIG_BIJLAGEN_PARAM/BIJLAGE/text()='"
+						+ nonExistingDoc + "']";
+				NodeList nodes = (NodeList) xPath.evaluate(xPathExpression, inputXML, XPathConstants.NODESET);
+				for (int i = nodes.getLength() - 1; i >= 0; i--) {
+
+					NodeList nodesFailedDocs = (NodeList) xPath.evaluate(xPathExpression, failedDocument,
+							XPathConstants.NODESET);
+					if (nodesFailedDocs.getLength() == 0) {
+						Element jd = (Element) failedDocument.getElementsByTagName("JOBDATA").item(0);
+						jd.appendChild(failedDocument.adoptNode(nodes.item(i).cloneNode(true)));
+					}
+					nodes.item(i).getParentNode().removeChild(nodes.item(i));
+				}
+			}
 
 			Element newRoot = inputXML.createElement("PRINTJOBDATA");
 			newRoot.appendChild(inputXML.getFirstChild());
@@ -474,5 +517,4 @@ public class DownloadDocs {
 		return inputXML;
 
 	}
-
 }
