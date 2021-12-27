@@ -223,8 +223,7 @@ public class DownloadDocs {
 			Date date = new Date();
 			SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd");
 			String strCurrentDate = formatter.format(date);
-			String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-
+			
 			if (final_doc_nodes.getLength() > 0) {
 				FileUtils.moveFileToDirectory(FileUtils.getFile(xmlFile), FileUtils.getFile(strXMLMovePath), true);
 
@@ -237,6 +236,7 @@ public class DownloadDocs {
 						FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate), true);
 			}
 			
+			String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
 			File oldCompletedFile = FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate+"\\"+strXMLFileName);
 			oldCompletedFile.renameTo(new File(strXMLMoveCompletedPath + "\\" + strCurrentDate+"\\"+timeStamp+"_"+strXMLFileName));
 
