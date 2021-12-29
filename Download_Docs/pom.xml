@@ -12,6 +12,8 @@
         <directory>resources</directory>
         <excludes>
           <exclude>**/*.java</exclude>
+          <exclude>**/*.xml</exclude>
+          <exclude>**/*.properties</exclude>          
         </excludes>
       </resource>
     </resources>

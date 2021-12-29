@@ -231,18 +231,19 @@ public class DownloadDocs {
 						FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate));
 				
 				logger.info("Updated XML " + xmlFile.getName() + " moved to " + strXMLMovePath);
-			} else {
-				FileUtils.moveFileToDirectory(FileUtils.getFile(xmlFile),
-						FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate), true);
+				String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+				File oldCompletedFile = FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate+"\\"+strXMLFileName);
+				oldCompletedFile.renameTo(new File(strXMLMoveCompletedPath + "\\" + strCurrentDate+"\\"+timeStamp+"_"+strXMLFileName));
+			} 
+			else
+			{
+				FileUtils.forceDelete(FileUtils.getFile(xmlFile));
 			}
-			
-			String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-			File oldCompletedFile = FileUtils.getFile(strXMLMoveCompletedPath + "\\" + strCurrentDate+"\\"+strXMLFileName);
-			oldCompletedFile.renameTo(new File(strXMLMoveCompletedPath + "\\" + strCurrentDate+"\\"+timeStamp+"_"+strXMLFileName));
+
 
 			if (failedDocs.size() > 0 || nonExistingDocs.size() > 0) {
 
-				timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+				String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
 				File xmlFailedDocFile = new File(strXMLMoveErrorPath + "\\" + timeStamp + "_FailedDocs.xml");
 				transformer.transform(new DOMSource(failedDocument), new StreamResult(xmlFailedDocFile));
 
